@@ -28,12 +28,27 @@ object BrainMa2 {
 		b.toList
 	}
 
+	def opt(code: List[Op]): List[Op] = {
+		val b = new ListBuffer[Op]
+		var prev: Op = null
+		code.foreach { op =>
+			(prev, op) match {
+				case (AddOp(x), AddOp(y)) => prev = AddOp(x + y)
+				case (ShiftOp(x), ShiftOp(y)) => prev = ShiftOp(x + y)
+				case (Op(), bop: BlockOp) => b += prev; prev = BlockOp(opt(bop.code))
+				case (Op(), Op()) => b += prev; prev = op
+				case (null, _) => prev = op
+			}
+		}
+		if(prev != null) b += prev
+		b.toList
+	}
+
 	def dump(code: List[Op], indent: Int = 0) {
 		code.foreach { op =>
-			print("  " * indent)
 			op match {
 				case op: BlockOp => dump(op.code, indent + 1)
-				case op: Op => println(op)
+				case op: Op => println("  " * indent + op)
 			}
 		}
 	}
@@ -46,7 +61,7 @@ object BrainMa2 {
 				case Nop()      =>
 				case AddOp(n)   => stack(sp) += n
 				case ShiftOp(n) => sp += n
-				case InputOp()  => 
+				case InputOp()  => /* TODO */
 				case OutputOp() => print(stack(sp).toChar)
 				case BlockOp(c) => while(stack(sp) != 0) runBlock(c)
 			}
@@ -59,7 +74,7 @@ object BrainMa2 {
 	}
 
 	def eval(src: Iterator[Char], ctx: Option[Context] = None) {
-		val code = compile(src)
+		var code = opt(compile(src))
 		ctx.foreach { c =>
 			if(c.showCode) {
 				println("*--------------------*")
