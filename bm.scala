@@ -3,44 +3,50 @@ import scala.collection.mutable.ListBuffer
 
 object BrainMa2 {
 
-	case class Op
-	case class Nop extends Op
-	case class AddOp(n: Int) extends Op
-	case class ShiftOp(n: Int) extends Op
+	case class Op {
+		def merge(op: Op): Option[Op] = None
+	}
+	case class Nop extends Op {
+		override def merge(op: Op): Option[Op] = Some(op)
+	}
+	case class AddOp(n: Int) extends Op {
+		override def merge(op: Op): Option[Op] = op match {
+			case AddOp(m) => Some(AddOp(n + m))
+			case _ => None
+		}
+	}
+	case class ShiftOp(n: Int) extends Op {
+		override def merge(op: Op): Option[Op] = op match {
+			case ShiftOp(m) => Some(ShiftOp(n + m))
+			case _ => None
+		}
+	}
 	case class InputOp extends Op
 	case class OutputOp extends Op
 	case class BlockOp(code: List[Op]) extends Op
+
+	def addop(b: ListBuffer[Op], op: Op) =
+		if(b.size > 0) b(b.size-1).merge(op) match {
+			case Some(o) => b(b.size-1) = o
+			case None => b += op
+		} else {
+			b += op
+		}
 
 	def compile(src: Iterator[Char]): List[Op] = {
 		val b = new ListBuffer[Op]
 		var e = true
 		while(e && src.hasNext) src.next match {
-			case '+' => b += AddOp(1)
-			case '-' => b += AddOp(-1)
-			case '<' => b += ShiftOp(-1)
-			case '>' => b += ShiftOp(1)
-			case '.' => b += OutputOp()
-			case ',' => b += InputOp()
-			case '[' => b += BlockOp(compile(src))
+			case '+' => addop(b, AddOp(1))
+			case '-' => addop(b, AddOp(-1))
+			case '<' => addop(b, ShiftOp(-1))
+			case '>' => addop(b, ShiftOp(1))
+			case '.' => addop(b, OutputOp())
+			case ',' => addop(b, InputOp())
+			case '[' => addop(b, BlockOp(compile(src)))
 			case ']' => e = false; 
 			case _   => 
 		}
-		b.toList
-	}
-
-	def opt(code: List[Op]): List[Op] = {
-		val b = new ListBuffer[Op]
-		var prev: Op = null
-		code.foreach { op =>
-			(prev, op) match {
-				case (AddOp(x), AddOp(y)) => prev = AddOp(x + y)
-				case (ShiftOp(x), ShiftOp(y)) => prev = ShiftOp(x + y)
-				case (Op(), bop: BlockOp) => b += prev; prev = BlockOp(opt(bop.code))
-				case (Op(), Op()) => b += prev; prev = op
-				case (null, _) => prev = op
-			}
-		}
-		if(prev != null) b += prev
 		b.toList
 	}
 
@@ -74,7 +80,7 @@ object BrainMa2 {
 	}
 
 	def eval(src: Iterator[Char], ctx: Option[Context] = None) {
-		var code = opt(compile(src))
+		var code = compile(src)
 		ctx.foreach { c =>
 			if(c.showCode) {
 				println("*--------------------*")
