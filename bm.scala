@@ -11,8 +11,7 @@ object BrainMa2 {
 		def set(n: Int)
 		def input
 		def output
-		def block(c: Array[Op])
-		def dump
+		def whileBlock(c: Array[Op])
 	}
 	trait Op {
 		def accept(v: Visitor): Unit
@@ -41,11 +40,8 @@ object BrainMa2 {
 	case class OutputOp extends Op {
 		override def accept(v: Visitor) = v.output
 	}
-	case class BlockOp(code: Array[Op]) extends Op {
-		override def accept(v: Visitor) = v.block(code)
-	}
-	case class DumpOp() extends Op {
-		override def accept(v: Visitor) = v.dump
+	case class WhileBlockOp(code: Array[Op]) extends Op {
+		override def accept(v: Visitor) = v.whileBlock(code)
 	}
 
 	def compile(src: Iterator[Char]): Array[Op] = {
@@ -79,8 +75,7 @@ object BrainMa2 {
 			}
 			def input  = b += InputOp()
 			def output = b += OutputOp()
-			def dump   = b += DumpOp()
-			def block(c: Array[Op]) {
+			def whileBlock(c: Array[Op]) {
 				var f = false
 				if(c.size == 2) (c(0), c(1)) match {
 					case (AddOp(-1), AddConstOp(p, 1)) => addTo(p); set(0); f=true
@@ -89,8 +84,8 @@ object BrainMa2 {
 				if(f) return
 				if(c.size == 1) c(0) match {
 					case AddOp(n) => set(0)
-					case _ => b += BlockOp(c)
-				} else b += BlockOp(c)
+					case _ => b += WhileBlockOp(c)
+				} else b += WhileBlockOp(c)
 			}
 		}
 		var e = true
@@ -101,19 +96,25 @@ object BrainMa2 {
 			case '<' => v.shift(-1)
 			case '.' => v.output
 			case ',' => v.input
-			case '[' => v.block(compile(src))
+			case '[' => v.whileBlock(compile(src))
 			case ']' => e = false; 
 			case _   => 
 		}
 		b.toArray
 	}
 
-	def dump(code: Array[Op], indent: Int = 0) {
-		code.foreach {
-			op => op match {
-				case op: BlockOp => dump(op.code, indent + 1)
-				case op: Op => println("  " * indent + op)
-			}
+	def dump(code: Array[Op], pref: String = "") {
+		new Visitor {
+			def add(n: Int)              = println(pref + "[0] += %d".format(n))
+			def addTo(p: Int)            = println(pref + "[%d] += [0]".format(p))
+			def addConst(p: Int, n: Int) = println(pref + "[%d] += %d".format(p, n))
+			def shift(n: Int)            = println(pref + "sp += %d".format(n))
+			def shiftAdd(p: Int, n: Int) = println(pref + "[sp += %d] += %d".format(p, n))
+			def set(n: Int)              = println(pref + "[0] = %d".format(n))
+			def input                    = println(pref + "[0] = input")
+			def output                   = println(pref + "print [0]")
+			def whileBlock(c: Array[Op]) = dump(c, pref + "  ")
+			code.foreach { _.accept(this) }
 		}
 	}
 
@@ -131,20 +132,14 @@ object BrainMa2 {
 			val stack = new Array[Int](1024)
 			code.foreach { _.accept(this) }
 			def add(n: Int)   = stack(sp) += n
-			def addTo(p: Int) = if(sp+p >= 0) { stack(sp + p) += stack(sp) }
+			def addTo(p: Int) = if(stack(sp) != 0) stack(sp + p) += stack(sp)
 			def addConst(p: Int, n: Int) = stack(sp + p) += n
 			def shift(n: Int) = sp += n
 			def shiftAdd(p: Int, n: Int) = { sp += p; stack(sp) += n }
 			def set(n: Int)   = stack(sp) = n
 			def input         = { /* TODO */ }
 			def output        = print(stack(sp).toChar)
-			def dump          = {
-				println("-----------------")
-				println("sp="+sp)
-				for(i <- 0 to sp) print(stack(i) + " ")
-				println()
-			}
-			def block(c: Array[Op]) {
+			def whileBlock(c: Array[Op]) {
 				while(stack(sp) != 0) c.foreach { _.accept(this) }
 			}
 		}
