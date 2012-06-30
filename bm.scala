@@ -9,6 +9,7 @@ object BrainMa2 {
 		def shift(n: Int)
 		def shiftAdd(p: Int, n: Int)
 		def set(n: Int)
+		def setAt(p: Int, n: Int)
 		def input
 		def output
 		def whileBlock(c: Array[Op])
@@ -33,6 +34,9 @@ object BrainMa2 {
 	}
 	case class SetOp(n: Int) extends Op {
 		override def accept(v: Visitor) = v.set(n)
+	}
+	case class SetAtOp(p: Int, n: Int) extends Op {
+		override def accept(v: Visitor) = v.setAt(p, n)
 	}
 	case class InputOp extends Op {
 		override def accept(v: Visitor) = v.input
@@ -65,7 +69,13 @@ object BrainMa2 {
 					case _ => b += ShiftOp(n)
 				} else b += ShiftOp(n)
 			}
-			def set(n: Int) = b += SetOp(n)
+			def set(n: Int) {
+				if(b.size > 0) b.last match {
+					case ShiftOp(m) => b.remove(b.size-1); setAt(m, n); shift(m)
+					case _ => b += SetOp(n)
+				} else b += SetOp(n)
+			}
+			def setAt(p: Int, n: Int) = b += SetAtOp(p, n)
 			def addConst(p: Int, n: Int) = b += AddConstOp(p, n)
 			def shiftAdd(p: Int, n: Int) {
 				if(b.size > 0) b.last match {
@@ -111,6 +121,7 @@ object BrainMa2 {
 			def shift(n: Int)            = println(pref + "sp += %d".format(n))
 			def shiftAdd(p: Int, n: Int) = println(pref + "[sp += %d] += %d".format(p, n))
 			def set(n: Int)              = println(pref + "[0] = %d".format(n))
+			def setAt(p: Int, n: Int)    = println(pref + "[%d] = %d".format(p, n))
 			def input                    = println(pref + "[0] = input")
 			def output                   = println(pref + "print [0]")
 			def whileBlock(c: Array[Op]) = dump(c, pref + "  ")
@@ -137,6 +148,7 @@ object BrainMa2 {
 			def shift(n: Int) = sp += n
 			def shiftAdd(p: Int, n: Int) = { sp += p; stack(sp) += n }
 			def set(n: Int)   = stack(sp) = n
+			def setAt(p: Int, n: Int) = stack(sp + p) = n
 			def input         = { /* TODO */ }
 			def output        = print(stack(sp).toChar)
 			def whileBlock(c: Array[Op]) {
