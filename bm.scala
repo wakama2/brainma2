@@ -1,76 +1,116 @@
 import scala.io.Source
-import scala.collection.mutable.ListBuffer
 
 object BrainMa2 {
 
-	case class Op {
-		def merge(op: Op): Option[Op] = None
-		def eval(sp: Int, stack: Array[Int]): Int = sp
+	trait Visitor {
+		def add(n: Int)
+		def addTo(p: Int)
+		def addConst(p: Int, n: Int)
+		def shift(n: Int)
+		def shiftAdd(p: Int, n: Int)
+		def set(n: Int)
+		def input
+		def output
+		def block(c: Array[Op])
+		def dump
 	}
-	case class Nop extends Op {
-		override def merge(op: Op): Option[Op] = Some(op)
-		override def eval(sp: Int, stack: Array[Int]): Int = sp
+	trait Op {
+		def accept(v: Visitor): Unit
 	}
 	case class AddOp(n: Int) extends Op {
-		override def merge(op: Op): Option[Op] = op match {
-			case AddOp(m) => Some(AddOp(n + m))
-			case _ => None
-		}
-		override def eval(sp: Int, stack: Array[Int]): Int = {
-			stack(sp) += n; sp
-		}
+		override def accept(v: Visitor) = v.add(n)
+	}
+	case class AddToOp(n: Int) extends Op {
+		override def accept(v: Visitor) = v.addTo(n)
+	}
+	case class AddConstOp(p: Int, n: Int) extends Op {
+		override def accept(v: Visitor) = v.addConst(p, n)
 	}
 	case class ShiftOp(n: Int) extends Op {
-		override def merge(op: Op): Option[Op] = op match {
-			case ShiftOp(m) => Some(ShiftOp(n + m))
-			case _ => None
-		}
-		override def eval(sp: Int, stack: Array[Int]): Int = sp + n
+		override def accept(v: Visitor) = v.shift(n)
+	}
+	case class ShiftAddOp(p: Int, n: Int) extends Op {
+		override def accept(v: Visitor) = v.shiftAdd(p, n)
+	}
+	case class SetOp(n: Int) extends Op {
+		override def accept(v: Visitor) = v.set(n)
 	}
 	case class InputOp extends Op {
-		override def eval(sp: Int, stack: Array[Int]): Int = sp/*TODO*/
+		override def accept(v: Visitor) = v.input
 	}
 	case class OutputOp extends Op {
-		override def eval(sp: Int, stack: Array[Int]): Int = {
-			print(stack(sp).toChar); sp
-		}
+		override def accept(v: Visitor) = v.output
 	}
-	case class BlockOp(code: List[Op]) extends Op {
-		override def eval(sp0: Int, stack: Array[Int]): Int = {
-			var sp = sp0
-			while(stack(sp) != 0) code.foreach { c => sp = c.eval(sp, stack) }
-			sp
-		}
+	case class BlockOp(code: Array[Op]) extends Op {
+		override def accept(v: Visitor) = v.block(code)
+	}
+	case class DumpOp() extends Op {
+		override def accept(v: Visitor) = v.dump
 	}
 
-	def compile(src: Iterator[Char]): List[Op] = {
-		val b = new ListBuffer[Op]
-		var e = true
-		def addop(op: Op) =
-			if(b.size > 0) b(b.size-1).merge(op) match {
-				case Some(o) => b(b.size-1) = o
-				case None => b += op
-			} else {
-				b += op
+	def compile(src: Iterator[Char]): Array[Op] = {
+		val b = new scala.collection.mutable.ListBuffer[Op]
+		val v = new Visitor {
+			def add(n: Int) {
+				if(b.size > 0) b.last match {
+					case SetOp(m)   => b.remove(b.size-1); set(n + m)
+					case AddOp(m)   => b.remove(b.size-1); add(n + m)
+					case ShiftOp(m) => b.remove(b.size-1); shiftAdd(m, n)
+					case ShiftAddOp(m, x) => b.remove(b.size-1); shiftAdd(m, x+n)
+					case AddConstOp(p, x) => b.remove(b.size-1); add(n); addConst(p, x)
+					case _ => b += AddOp(n)
+				} else b += AddOp(n)
 			}
-
+			def addTo(p: Int) = b += AddToOp(p)
+			def shift(n: Int) {
+				if(b.size > 0) b.last match {
+					case ShiftOp(m) => b.remove(b.size-1); shift(n+m)
+					case ShiftAddOp(m, x) if m+n == 0 => b.remove(b.size-1); addConst(m, x)
+					case _ => b += ShiftOp(n)
+				} else b += ShiftOp(n)
+			}
+			def set(n: Int) = b += SetOp(n)
+			def addConst(p: Int, n: Int) = b += AddConstOp(p, n)
+			def shiftAdd(p: Int, n: Int) {
+				if(b.size > 0) b.last match {
+					case ShiftAddOp(m, x) => b.remove(b.size-1); addConst(m, x); shiftAdd(m+p, n)
+					case _ => b += ShiftAddOp(p, n)
+				} else b += ShiftAddOp(p, n)
+			}
+			def input  = b += InputOp()
+			def output = b += OutputOp()
+			def dump   = b += DumpOp()
+			def block(c: Array[Op]) {
+				var f = false
+				if(c.size == 2) (c(0), c(1)) match {
+					case (AddOp(-1), AddConstOp(p, 1)) => addTo(p); set(0); f=true
+					case (_, _) =>
+				}
+				if(f) return
+				if(c.size == 1) c(0) match {
+					case AddOp(n) => set(0)
+					case _ => b += BlockOp(c)
+				} else b += BlockOp(c)
+			}
+		}
+		var e = true
 		while(e && src.hasNext) src.next match {
-			case '+' => addop(AddOp(1))
-			case '-' => addop(AddOp(-1))
-			case '<' => addop(ShiftOp(-1))
-			case '>' => addop(ShiftOp(1))
-			case '.' => addop(OutputOp())
-			case ',' => addop(InputOp())
-			case '[' => addop(BlockOp(compile(src)))
+			case '+' => v.add(1)
+			case '-' => v.add(-1)
+			case '>' => v.shift(1)
+			case '<' => v.shift(-1)
+			case '.' => v.output
+			case ',' => v.input
+			case '[' => v.block(compile(src))
 			case ']' => e = false; 
 			case _   => 
 		}
-		b.toList
+		b.toArray
 	}
 
-	def dump(code: List[Op], indent: Int = 0) {
-		code.foreach { op =>
-			op match {
+	def dump(code: Array[Op], indent: Int = 0) {
+		code.foreach {
+			op => op match {
 				case op: BlockOp => dump(op.code, indent + 1)
 				case op: Op => println("  " * indent + op)
 			}
@@ -80,15 +120,34 @@ object BrainMa2 {
 	var showCode = false
 
 	def eval(src: Iterator[Char]) {
-		var code = compile(src)
+		val code = compile(src)
 		if(showCode) {
 			println("*--------------------*")
 			dump(code)
 			println("*--------------------*")
 		}
-		var sp = 0
-		val stack = new Array[Int](1024)
-		code foreach { c => sp = c.eval(sp, stack) }
+		new Visitor {
+			var sp = 0
+			val stack = new Array[Int](1024)
+			code.foreach { _.accept(this) }
+			def add(n: Int)   = stack(sp) += n
+			def addTo(p: Int) = if(sp+p >= 0) { stack(sp + p) += stack(sp) }
+			def addConst(p: Int, n: Int) = stack(sp + p) += n
+			def shift(n: Int) = sp += n
+			def shiftAdd(p: Int, n: Int) = { sp += p; stack(sp) += n }
+			def set(n: Int)   = stack(sp) = n
+			def input         = { /* TODO */ }
+			def output        = print(stack(sp).toChar)
+			def dump          = {
+				println("-----------------")
+				println("sp="+sp)
+				for(i <- 0 to sp) print(stack(i) + " ")
+				println()
+			}
+			def block(c: Array[Op]) {
+				while(stack(sp) != 0) c.foreach { _.accept(this) }
+			}
+		}
 	}
 
 	def main(args: Array[String]) {
