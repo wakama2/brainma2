@@ -3,7 +3,6 @@ import scala.io.Source
 object BrainMa2 {
 
 	trait Visitor {
-		def add(n: Int)
 		def addTo(p: Int, k: Int)
 		def addConst(p: Int, n: Int)
 		def addToMul(p: Int, k: Int, n: Int) // [p] += [k] * n
@@ -17,9 +16,6 @@ object BrainMa2 {
 	}
 	trait Op {
 		def accept(v: Visitor): Unit
-	}
-	case class AddOp(n: Int) extends Op {
-		override def accept(v: Visitor) = v.add(n)
 	}
 	case class AddToOp(n: Int, k: Int) extends Op {
 		override def accept(v: Visitor) = v.addTo(n, k)
@@ -55,18 +51,23 @@ object BrainMa2 {
 	def compile(src: Iterator[Char], top: Boolean = true): Array[Op] = {
 		val b = new scala.collection.mutable.ListBuffer[Op]
 		val v = new Visitor {
-			def add(n: Int) {
-				if(n == 0) return;
+			def addConst(p: Int, n: Int) {
 				if(b.size > 0) b.last match {
-					case SetAtOp(0, m) => b.remove(b.size-1); setAt(0, n + m)
-					case AddOp(m)   => b.remove(b.size-1); add(n + m)
-					case ShiftOp(p) => b.remove(b.size-1); addConst(p, n); shift(p)
-					case WhileBlockOp(_) => setAt(0, n)
-					case AddConstOp(p, x) => b.remove(b.size-1); add(n); addConst(p, x)
-					case _ => b += AddOp(n)
+					case WhileBlockOp(_) if p==0 => setAt(0, n)
+					case AddConstOp(p1, n1) if p1==p => b.remove(b.size-1); addConst(p, n+n1)
+					case AddConstOp(p1, n1) if p==0  => 
+						b.remove(b.size-1); addConst(p, n); addConst(p1, n1)
+					case ShiftOp(p1) => b.remove(b.size-1); addConst(p+p1, n); shift(p1)
+					case SetAtOp(p1, n1) => b.remove(b.size-1)
+						if(p1 == p) {
+							setAt(p1, n+n1)
+						} else {
+							addConst(p, n); setAt(p1, n1)
+						}
+					case _ => b += AddConstOp(p, n)
 				} else if(top) {
-					setAt(0, n)
-				} else b += AddOp(n)
+					setAt(p, n)
+				} else b += AddConstOp(p, n)
 			}
 			def addTo(p: Int, k: Int) {
 				if(b.size > 0) b.last match {
@@ -99,17 +100,6 @@ object BrainMa2 {
 				} else b += SetAtOp(p, n)
 			}
 			def setTo(p: Int, k: Int) = b += SetToOp(p, k)
-			def addConst(p: Int, n: Int) {
-				if(b.size > 0) b.last match {
-					case AddConstOp(p1, n1) if p1==p => b.remove(b.size-1); addConst(p, n+n1)
-					case ShiftOp(p1) if p1+p==0 => b.remove(b.size-1); add(n); shift(p1)
-					case SetAtOp(p1, n1) if p1==p => b.remove(b.size-1); setAt(p, n+n1)
-					case SetAtOp(p1, n1) => b.remove(b.size-1); addConst(p, n); setAt(p1, n1)
-					case _ => b += AddConstOp(p, n)
-				} else if(top) {
-					setAt(p, n)
-				} else b += AddConstOp(p, n)
-			}
 			def input  = b += InputOp()
 			def output(p: Int) {
 				if(b.size > 0) b.last match {
@@ -133,7 +123,7 @@ object BrainMa2 {
 			}
 			def whileBlock(c: Array[Op]) { // c.size >= 1
 				c(0) match {
-					case AddOp(-1) =>
+					case AddConstOp(0, -1) =>
 						var i = 1
 						while(i < c.size && c(i).isInstanceOf[AddConstOp]) i+=1
 						if(i == c.size) {
@@ -146,17 +136,13 @@ object BrainMa2 {
 						}
 					case _ =>
 				}
-				if(c.size == 1) c(0) match {
-					case AddOp(n) => setAt(0, 0)
-					case _ => b += WhileBlockOp(c)
-				} else b += WhileBlockOp(c)
+				b += WhileBlockOp(c)
 			}
 		}
-		//if(top) v.setAt(0, 0)
 		var e = true
 		while(e && src.hasNext) src.next match {
-			case '+' => v.add(1)
-			case '-' => v.add(-1)
+			case '+' => v.addConst(0, 1)
+			case '-' => v.addConst(0, -1)
 			case '>' => v.shift(1)
 			case '<' => v.shift(-1)
 			case '.' => v.output(0)
@@ -168,7 +154,6 @@ object BrainMa2 {
 		if(top) {
 			e = true
 			while(e && b.size > 0) b(b.size-1) match {
-				case AddOp(n) => b.remove(b.size-1)
 				case AddConstOp(p, n) => b.remove(b.size-1)
 				case ShiftOp(n) => b.remove(b.size-1)
 				case SetAtOp(p, n) => b.remove(b.size-1)
@@ -180,7 +165,6 @@ object BrainMa2 {
 
 	def dump(code: Array[Op], pref: String = "") {
 		new Visitor {
-			def add(n: Int)              = println(pref + "[0] += %d".format(n))
 			def addTo(p: Int, k: Int)    = println(pref + "[%d] += [%d]".format(p, k))
 			def addConst(p: Int, n: Int) = println(pref + "[%d] += %d".format(p, n))
 			def addToMul(p: Int, k: Int, n: Int) = println(pref + "[%d] += [%d] * %d".format(p, k, n))
@@ -208,7 +192,6 @@ object BrainMa2 {
 			var sp = 0
 			val stack = new Array[Int](1024)
 			code.foreach { _.accept(this) }
-			def add(n: Int)   = stack(sp) += n
 			def addTo(p: Int, k: Int)    = if(stack(sp+k) != 0) stack(sp + p) += stack(sp + k)
 			def addConst(p: Int, n: Int) = stack(sp + p) += n
 			def addToMul(p: Int, k: Int, n: Int) = if(stack(sp+k) != 0) stack(sp + p) += stack(sp + k) * n
