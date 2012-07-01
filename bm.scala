@@ -12,7 +12,7 @@ object BrainMa2 {
 		def setTo(p: Int, k: Int)
 		def input
 		def output(n: Int)
-		def outputConst(n: Int)
+		def outputConst(s: String)
 		def whileBlock(c: Array[Op])
 	}
 	trait Op {
@@ -45,7 +45,7 @@ object BrainMa2 {
 	case class OutputOp(p: Int) extends Op {
 		override def accept(v: Visitor) = v.output(p)
 	}
-	case class OutputConstOp(p: Int) extends Op {
+	case class OutputConstOp(p: String) extends Op {
 		override def accept(v: Visitor) = v.outputConst(p)
 	}
 	case class WhileBlockOp(code: Array[Op]) extends Op {
@@ -58,7 +58,7 @@ object BrainMa2 {
 			def add(n: Int) {
 				if(n == 0) return;
 				if(b.size > 0) b.last match {
-					case SetAtOp(0, m)   => b.remove(b.size-1); setAt(0, n + m)
+					case SetAtOp(0, m) => b.remove(b.size-1); setAt(0, n + m)
 					case AddOp(m)   => b.remove(b.size-1); add(n + m)
 					case ShiftOp(p) => b.remove(b.size-1); addConst(p, n); shift(p)
 					case WhileBlockOp(_) => setAt(0, n)
@@ -101,6 +101,7 @@ object BrainMa2 {
 			def setTo(p: Int, k: Int) = b += SetToOp(p, k)
 			def addConst(p: Int, n: Int) {
 				if(b.size > 0) b.last match {
+					case AddConstOp(p1, n1) if p1==p => b.remove(b.size-1); addConst(p, n+n1)
 					case ShiftOp(p1) if p1+p==0 => b.remove(b.size-1); add(n); shift(p1)
 					case SetAtOp(p1, n1) if p1==p => b.remove(b.size-1); setAt(p, n+n1)
 					case SetAtOp(p1, n1) => b.remove(b.size-1); addConst(p, n); setAt(p1, n1)
@@ -116,18 +117,19 @@ object BrainMa2 {
 					case SetAtOp(p1, n) => 
 						b.remove(b.size-1)
 						if(p1 == p) {
-							outputConst(n); setAt(p1, n)
+							outputConst(n.toChar.toString); setAt(p1, n)
 						} else { 
 							output(p); setAt(p1, n)
 						}
 					case _ => b += OutputOp(p)
 				} else b += OutputOp(p)
 			}
-			def outputConst(n: Int) {
+			def outputConst(s: String) {
 				if(b.size > 0) b.last match {
-					case SetAtOp(p1, n1) => b.remove(b.size-1); outputConst(n); setAt(p1, n1)
-					case _ => b += OutputConstOp(n)
-				} else b += OutputConstOp(n)
+					case SetAtOp(p1, n1) => b.remove(b.size-1); outputConst(s); setAt(p1, n1)
+					case OutputConstOp(s1) => b.remove(b.size-1); outputConst(s1 + s)
+					case _ => b += OutputConstOp(s)
+				} else b += OutputConstOp(s)
 			}
 			def whileBlock(c: Array[Op]) { // c.size >= 1
 				c(0) match {
@@ -163,6 +165,16 @@ object BrainMa2 {
 			case ']' => e = false; 
 			case _   => 
 		}
+		if(top) {
+			e = true
+			while(e && b.size > 0) b(b.size-1) match {
+				case AddOp(n) => b.remove(b.size-1)
+				case AddConstOp(p, n) => b.remove(b.size-1)
+				case ShiftOp(n) => b.remove(b.size-1)
+				case SetAtOp(p, n) => b.remove(b.size-1)
+				case _ => e = false
+			}
+		}
 		b.toArray
 	}
 
@@ -177,7 +189,7 @@ object BrainMa2 {
 			def setTo(p: Int, k: Int)    = println(pref + "[%d] = [%d]".format(p, k))
 			def input                    = println(pref + "[0] = input")
 			def output(p: Int)           = println(pref + "print [%d]".format(p))
-			def outputConst(n: Int)      = println(pref + "print %d (%c)".format(n, n))
+			def outputConst(n: String)   = println(pref + "print %s".format(n))
 			def whileBlock(c: Array[Op]) = dump(c, pref + "  ")
 			code.foreach { _.accept(this) }
 		}
@@ -205,7 +217,7 @@ object BrainMa2 {
 			def setTo(p: Int, k: Int) = stack(sp + p) = stack(sp + k)
 			def input          = { /* TODO */ }
 			def output(p: Int) = print(stack(sp + p).toChar)
-			def outputConst(n: Int) = print(n.toChar)
+			def outputConst(n: String) = print(n)
 			def whileBlock(c: Array[Op]) {
 				while(stack(sp) != 0) c.foreach { _.accept(this) }
 			}
