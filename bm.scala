@@ -3,12 +3,12 @@ import scala.io.Source
 object BrainMa2 {
 
 	trait Visitor {
-		def addReg(p: Int, k: Int)          // [p] += [k]
 		def addConst(p: Int, n: Int)        // [p] += n
+		def addReg(p: Int, k: Int)          // [p] += [k]
 		def addRegN(p: Int, k: Int, n: Int) // [p] += [k] * n
+		def setReg(p: Int, k: Int)          // [p] = k
+		def setConst(p: Int, n: Int)        // [p] = [n]
 		def shift(n: Int)
-		def setConst(p: Int, n: Int) // [p] = [n]
-		def setReg(p: Int, k: Int)   // [p] = k
 		def input
 		def output(n: Int)
 		def outputConst(s: String)
@@ -29,10 +29,10 @@ object BrainMa2 {
 	case class ShiftOp(n: Int) extends Op {
 		override def accept(v: Visitor) = v.shift(n)
 	}
-	case class setConstOp(p: Int, n: Int) extends Op {
+	case class SetConstOp(p: Int, n: Int) extends Op {
 		override def accept(v: Visitor) = v.setConst(p, n)
 	}
-	case class setRegOp(p: Int, k: Int) extends Op {
+	case class SetRegOp(p: Int, k: Int) extends Op {
 		override def accept(v: Visitor) = v.setReg(p, k)
 	}
 	case class InputOp extends Op {
@@ -52,13 +52,14 @@ object BrainMa2 {
 		val b = new scala.collection.mutable.ListBuffer[Op]
 		val v = new Visitor {
 			def addConst(p: Int, n: Int) {
+				if(n == 0) return
 				if(b.size > 0) b.last match {
 					case WhileBlockOp(_) if p==0 => setConst(0, n)
 					case AddConstOp(p1, n1) if p1==p => b.remove(b.size-1); addConst(p, n+n1)
 					case AddConstOp(p1, n1) if p==0  => 
 						b.remove(b.size-1); addConst(p, n); addConst(p1, n1)
 					case ShiftOp(p1) => b.remove(b.size-1); addConst(p+p1, n); shift(p1)
-					case setConstOp(p1, n1) => b.remove(b.size-1)
+					case SetConstOp(p1, n1) => b.remove(b.size-1)
 						if(p1 == p) {
 							setConst(p1, n+n1)
 						} else {
@@ -70,18 +71,24 @@ object BrainMa2 {
 				} else b += AddConstOp(p, n)
 			}
 			def addReg(p: Int, k: Int) {
+				if(top) searchConst(k, b.size-1) foreach {
+					n1 => return addConst(p, n1)
+				}
 				if(b.size > 0) b.last match {
 					case ShiftOp(p1) => b.remove(b.size-1); addReg(p+p1, k+p1); shift(p1)
-					case setConstOp(p1, 0) if p1==p => b.remove(b.size-1); setReg(p, k)
-					case setConstOp(k1, n) if k1==k => b.remove(b.size-1); addConst(p, n); setConst(k, n)
+					case SetConstOp(p1, 0) if p1==p => b.remove(b.size-1); setReg(p, k)
+					case SetConstOp(k1, n) if k1==k => b.remove(b.size-1); addConst(p, n); setConst(k, n)
 					case WhileBlockOp(_) if p==0 => setReg(0, k)
 					case _ => b += addRegOp(p, k)
 				} else b += addRegOp(p, k)
 			}
 			def addRegN(p: Int, k: Int, n: Int) {
+				if(top) searchConst(k, b.size-1) foreach {
+					n1 => return addConst(p, n1 * n)
+				}
 				if(b.size > 0) b.last match {
 					case ShiftOp(p1) => b.remove(b.size-1); addRegN(p+p1, k+p1, n); shift(p1)
-					case setConstOp(p1, n1) if k==p1 => b.remove(b.size-1); addConst(p, n1 * n); setConst(p1, n1)
+					case SetConstOp(p1, n1) if k==p1 => b.remove(b.size-1); addConst(p, n1 * n); setConst(p1, n1)
 					case _ => b += addRegNOp(p, k, n)
 				} else b += addRegNOp(p, k, n)
 			}
@@ -94,17 +101,25 @@ object BrainMa2 {
 			}
 			def setConst(p: Int, n: Int) {
 				if(b.size > 0) b.last match {
-					case setConstOp(p1, _) if p==p1 => b.remove(b.size-1); setConst(p, n)
+					case SetConstOp(p1, _) if p==p1 => b.remove(b.size-1); setConst(p, n)
 					case ShiftOp(m) => b.remove(b.size-1); setConst(p + m, n); shift(m)
-					case _ => b += setConstOp(p, n)
-				} else b += setConstOp(p, n)
+					case _ => b += SetConstOp(p, n)
+				} else b += SetConstOp(p, n)
 			}
-			def setReg(p: Int, k: Int) = b += setRegOp(p, k)
+			def setReg(p: Int, k: Int) {
+				if(top) searchConst(k, b.size-1) foreach {
+					n1 => return setConst(p, n1)
+				}
+				if(b.size > 0) b.last match {
+					case ShiftOp(p1) => b.remove(b.size-1); setReg(p+p1, k+p1); shift(p1)
+					case _ => b + SetRegOp(p, k)
+				} else b += SetRegOp(p, k)
+			}
 			def input  = b += InputOp()
 			def output(p: Int) {
 				if(b.size > 0) b.last match {
 					case ShiftOp(p1) => b.remove(b.size-1); output(p+p1); shift(p1)
-					case setConstOp(p1, n) => 
+					case SetConstOp(p1, n) => 
 						b.remove(b.size-1)
 						if(p1 == p) {
 							outputConst(n.toChar.toString); setConst(p1, n)
@@ -116,12 +131,34 @@ object BrainMa2 {
 			}
 			def outputConst(s: String) {
 				if(b.size > 0) b.last match {
-					case setConstOp(p1, n1) => b.remove(b.size-1); outputConst(s); setConst(p1, n1)
+					case SetConstOp(p1, n1) => b.remove(b.size-1); outputConst(s); setConst(p1, n1)
 					case OutputConstOp(s1) => b.remove(b.size-1); outputConst(s1 + s)
 					case _ => b += OutputConstOp(s)
 				} else b += OutputConstOp(s)
 			}
+			def searchConst(p: Int, k: Int): Option[Int] = {
+				for(i <- (0 to k).reverse) {
+					b(i) match {
+						case SetConstOp(p1, n) =>
+							if(p == p1) {
+								return Some(n)
+							}
+						case _ => return None
+					}
+				}
+				return Some(0)
+			}
 			def whileBlock(c: Array[Op]) { // c.size >= 1
+				if(top && b.size > 0) b.last match {
+					case ShiftOp(p) => searchConst(p, b.size-2) foreach { i =>
+						if(i == 0) return
+						c.foreach {
+							_.accept(this)
+						}
+						return whileBlock(c)
+					}
+					case _ =>
+				}
 				c(0) match {
 					case AddConstOp(0, -1) =>
 						var i = 1
@@ -156,7 +193,7 @@ object BrainMa2 {
 			while(e && b.size > 0) b(b.size-1) match {
 				case AddConstOp(p, n) => b.remove(b.size-1)
 				case ShiftOp(n) => b.remove(b.size-1)
-				case setConstOp(p, n) => b.remove(b.size-1)
+				case SetConstOp(p, n) => b.remove(b.size-1)
 				case _ => e = false
 			}
 		}
@@ -190,7 +227,7 @@ object BrainMa2 {
 		}
 		new Visitor {
 			var sp = 0
-			val stack = new Array[Int](1024)
+			val stack = new Array[Int](10240)
 			code.foreach { _.accept(this) }
 			def addReg(p: Int, k: Int)    = if(stack(sp+k) != 0) stack(sp + p) += stack(sp + k)
 			def addConst(p: Int, n: Int) = stack(sp + p) += n
