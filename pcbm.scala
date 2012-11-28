@@ -10,7 +10,7 @@ object BrainMa2 extends Parsers {
 	trait Inst {
 		def apply
 	}
-	case class NopInst extends Inst {
+	case object NopInst extends Inst {
 		def apply {}
 	}
 	case class AddInst(val n: Int) extends Inst {
@@ -19,11 +19,11 @@ object BrainMa2 extends Parsers {
 	case class ShiftInst(val n: Int) extends Inst {
 		def apply { sp += n }
 	}
-	case class OutputInst extends Inst {
+	case object OutputInst extends Inst {
 		def apply { print(stack(sp).toChar) }
 	}
-	case class InputInst extends Inst {
-		def apply { throw new Exception("TODO") }
+	case object InputInst extends Inst {
+		def apply { stack(sp) = Console.readChar }
 	}
 	case class BlockInst(val b: Seq[Inst]) extends Inst {
 		def apply { while(stack(sp) != 0) b.foreach { _.apply } }
@@ -33,10 +33,10 @@ object BrainMa2 extends Parsers {
 	lazy val parse_minus: Parser[Inst] = elem('-') ^^^ AddInst(-1)
 	lazy val parse_lshift:Parser[Inst] = elem('<') ^^^ ShiftInst(-1)
 	lazy val parse_rshift:Parser[Inst] = elem('>') ^^^ ShiftInst(+1)
-	lazy val parse_dot  : Parser[Inst] = elem('.') ^^^ OutputInst()
-	lazy val parse_comma: Parser[Inst] = elem(',') ^^^ InputInst()
-	lazy val parse_brace: Parser[Inst] = (elem('[') ~> (parse ^^ { BlockInst(_) } ) <~ elem(']'))
-	lazy val parse_other: Parser[Inst] = elem("", ch => ch != CharSequenceReader.EofCh && ch != ']') ^^^ NopInst()
+	lazy val parse_dot  : Parser[Inst] = elem('.') ^^^ OutputInst
+	lazy val parse_comma: Parser[Inst] = elem(',') ^^^ InputInst
+	lazy val parse_brace: Parser[Inst] = elem('[') ~> (parse ^^ { BlockInst(_) } ) <~ elem(']')
+	lazy val parse_other: Parser[Inst] = elem("", ch => ch != CharSequenceReader.EofCh && ch != ']') ^^^ NopInst
 	lazy val parse: Parser[List[Inst]] = rep(parse_plus | parse_minus | parse_lshift | parse_rshift |
 			parse_dot | parse_comma | parse_brace | parse_other)
 
