@@ -1,2 +1,4 @@
 name := "BrainScript"
 
+scalaVersion := "2.10.2"
+

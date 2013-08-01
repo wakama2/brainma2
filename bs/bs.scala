@@ -100,7 +100,7 @@ object Converter {
 	}
 
 	def main(args: Array[String]) {
-		var r: Input = new CharSequenceReader(Source.fromFile("test.bs").mkString)
+		var r: Input = new CharSequenceReader(Source.fromFile(args(0)).mkString)
 		while({
 			parseStmt(r) match {
 				case Success(ast, r2) => exec(ast); r = r2; true
