@@ -21,11 +21,17 @@ object BrainScriptParser extends RegexParsers {
 
 	lazy val parseType: Parser[String] = symbol
 
-	lazy val parseExpr: Parser[AST] =
-			elem ~ "+" ~ parseExpr ^^ {
+	lazy val parseExpr1: Parser[AST] =
+			elem ~ ("*"|"/") ~ parseExpr1 ^^ {
 				case a~b~c => BinOpAST(a, b, c)
 			} |
 			elem
+
+	lazy val parseExpr: Parser[AST] =
+			parseExpr1 ~ ("+"|"-") ~ parseExpr ^^ {
+				case a~b~c => BinOpAST(a, b, c)
+			} |
+			parseExpr1
 
 	lazy val parseLet: Parser[AST] = parseType ~ symbol ~ "=" ~ parseExpr ^^ {
 		case t~a~_~b => LetAST(t, a, b)
@@ -42,6 +48,9 @@ object BrainScriptParser extends RegexParsers {
 object Converter {
 	import BrainScriptParser._
 
+	//def D(msg: Any) = {} // debug
+	def D(msg: Any) = println(msg)
+
 	def times(s: String, n: Int) = ("" /: (0 until n)) ((x, _) => x+s)
 
 	var varMap: Map[String, Int] = Map()
@@ -53,8 +62,8 @@ object Converter {
 
 	def addLocal(s: String) {
 		val i = varMap.size
-		println("local " + s + ": " + i)
 		varMap += s -> i
+		D("local " + s + ": " + i)
 	}
 
 	def shiftTo(n: Int): String = {
@@ -67,11 +76,9 @@ object Converter {
 		}
 	}
 
-	val plusFunc = "<[-<+>]"
+	def shift(n: Int) = shiftTo(index + n)
 
 	val zero = "[-]"
-
-	def shift(n: Int) = shiftTo(index + n)
 
 	def load(n: Int) = {
 		val s = index - n
@@ -84,18 +91,29 @@ object Converter {
 		">" + "[-<" + ls + "+>" + rs + "]"  // restore [n] = [1], [1] = 0
 	}
 
+	val funcs: Map[String, String] = Map(
+		"+" -> "<[-<+>]",
+		"-" -> "<[-<->]",
+		"*" -> "[-]>[-]<<<[->>+<<]>[->[->+<<<+>>]>[-<+>]<<]",
+		"print" -> "<."
+	)
+
+	def convCall(fname: String, args: Seq[AST], ret: Int) = {
+		(("" /: args) (_ + conv(_))) + { index -= args.size - ret; funcs(fname) }
+	}
+
 	def conv(ast: AST): String = ast match {
 		case NumberAST(n) => zero + convInt(n) + shift(1)
 		case SymbolAST(s) => load(getIndex(s))
-		case BinOpAST(l, "+", r) => conv(l) + conv(r) + { index -= 1; plusFunc }
+		case BinOpAST(l, op, r) => convCall(op, Seq(l, r), 1)
 		case LetAST(t, s, e) => addLocal(s); conv(e)
-		case PrintAST(e) => conv(e) + shift(-1) + "."
+		case PrintAST(e) => convCall("print", Seq(e), 0)
 	}
 
 	var res = ""
 
 	def exec(ast: AST) {
-		println(ast)
+		D(ast)
 		res += conv(ast) + " "
 	}
 
@@ -107,7 +125,7 @@ object Converter {
 				case _ => false
 			}
 		}) ()
-		println(res)
+		D(res)
 		BrainMa2.eval(res)
 		println()
 	}
