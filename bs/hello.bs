@@ -1,0 +1,8 @@
+int a = 65;
+int l = a + 11;
+print(a + 7);
+print(a + 4);
+print(l);
+print(l);
+print(a + 14);
+
