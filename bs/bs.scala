@@ -6,10 +6,13 @@ object BrainScriptParser extends RegexParsers {
 	//---
 	type Type = String
 	trait AST
-	case class SymbolAST(sym: String) extends AST
+	case class VarAST(sym: String) extends AST
 	case class NumberAST(num: Int) extends AST
 	case class CallAST(fname: String, args: Seq[AST]) extends AST
-	case class LetAST(ty: Type, sym: String, rhs: AST) extends AST
+	case class VarStmtAST(ty: Type, sym: String, rhs: AST) extends AST
+	case class BlockStmtAST(b: Seq[AST]) extends AST
+	case class IfStmtAST(cond: AST, ts: AST, es: Option[AST]) extends AST
+	case class WhileStmtAST(cond: AST, b: AST) extends AST
 
 	//---
 	lazy val symbol: Parser[String] = """[a-zA-Z_][a-zA-Z0-9_]*""".r
@@ -17,32 +20,62 @@ object BrainScriptParser extends RegexParsers {
 
 	//---
 	lazy val parseType: Parser[Type] = symbol
-
-	lazy val parseFactor: Parser[AST] =
+	lazy val parseElem: Parser[AST] = {
 			"(" ~> parseExpr <~ ")" |
-			symbol ^^ { SymbolAST(_) } |
+			parseCall |
+			symbol ^^ { VarAST(_) } |
 			number ^^ { NumberAST(_) }
-
-	lazy val parseTerm: Parser[AST] =
-			parseFactor ~ rep(("*"|"/") ~ parseFactor) ^^ {
+	}
+	lazy val parseCall: Parser[AST] = {
+		symbol ~ ("(" ~> repsep(parseExpr, ",") <~ ")") ^^ {
+			case f~a => CallAST(f,a)
+		}
+	}
+	lazy val parseMulExpr: Parser[AST] = {
+			parseElem ~ rep(("*"|"/") ~ parseElem) ^^ {
 				case a~b => (a /: b) { case (a, (op~c)) => CallAST(op, Seq(a, c)) }
 			}
-
-	lazy val parseExpr: Parser[AST] =
-			parseTerm ~ rep(("+"|"-") ~ parseTerm) ^^ {
+	}
+	lazy val parseAddExpr: Parser[AST] = {
+			parseMulExpr ~ rep(("+"|"-") ~ parseMulExpr) ^^ {
 				case a~b => (a /: b) { case (a, (op~c)) => CallAST(op, Seq(a, c)) }
 			}
-
-	lazy val parseLet: Parser[AST] = parseType ~ symbol ~ "=" ~ parseExpr ^^ {
-		case t~a~_~b => LetAST(t, a, b)
 	}
-
-	lazy val parsePrint: Parser[AST] = "print" ~ "(" ~ parseExpr ~ ")" ^^ {
-		case _~_~a~_ => CallAST("print", Seq(a))
+	lazy val parseCompExpr: Parser[AST] = {
+			parseAddExpr ~ rep(("<="|">="|"<"|">"|"=="|"!=") ~ parseAddExpr) ^^ {
+				case a~b => (a /: b) { case (a, (op~c)) => CallAST(op, Seq(a, c)) }
+			}
 	}
-
-	lazy val parseStmt: Parser[AST] = (parseLet | parsePrint) <~ ";"
-
+	lazy val parseExpr: Parser[AST] = parseCompExpr
+	//---
+	lazy val parseIfStmt: Parser[AST] = {
+		"if" ~ ("(" ~> parseExpr <~ ")") ~ parseStmt ~ ("else" ~> parseStmt?) ^^ {
+			case _~c~t~e => IfStmtAST(c, t, e)
+		}
+	}
+	lazy val parseWhileStmt: Parser[AST] = {
+		"while" ~ ("(" ~> parseExpr <~ ")") ~ parseStmt ^^ {
+			case _~c~t => WhileStmtAST(c, t)
+		}
+	}
+	lazy val parseBlockStmt: Parser[AST] = {
+		"{" ~> rep(parseStmt) <~ "}" ^^ {
+			case a => BlockStmtAST(a)
+		}
+	}
+	lazy val parseExprStmt: Parser[AST] = parseExpr <~ ";"
+	lazy val parseVarStmt: Parser[AST] = {
+		parseType ~ symbol ~ "=" ~ parseExpr ~ ";" ^^ {
+			case t~a~_~b~_ => VarStmtAST(t, a, b)
+		}
+	}
+	lazy val parseStmt: Parser[AST] = {
+		parseBlockStmt |
+		parseIfStmt |
+		parseWhileStmt |
+		parseVarStmt   |
+		parseExprStmt
+	}
 }
 
 object BrainScript {
@@ -102,15 +135,17 @@ object BrainScript {
 
 	def convCall(fname: String, args: Seq[AST]) = {
 		val func = funcs(fname)
-		(("" /: args) (_ + conv(_))) +
-			{ index -= args.size - func.retSize; func.src }
+		val pop = args.size - func.retSize
+		(("" /: args) (_ + conv(_))) + { index -= pop; func.src }
 	}
 
 	def conv(ast: AST): String = ast match {
 		case NumberAST(n) => zero + convInt(n) + shift(1)
-		case SymbolAST(s) => load(getIndex(s))
-		case LetAST(t, s, e) => addLocal(s); conv(e)
+		case VarAST(s) => load(getIndex(s))
+		case VarStmtAST(t, s, e) => addLocal(s); conv(e)
 		case CallAST(fname, args) => convCall(fname, args)
+		case BlockStmtAST(b) => b.map { conv(_) } reduce {_ + _}
+		//case IfStmtAST(c, t, e) => conv(c)//TOFO
 	}
 
 	var res = ""
