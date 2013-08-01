@@ -3,49 +3,49 @@ import util.parsing.input.CharSequenceReader
 import io.Source
 
 object BrainScriptParser extends RegexParsers {
-
+	//---
 	type Type = String
 	trait AST
 	case class SymbolAST(sym: String) extends AST
 	case class NumberAST(num: Int) extends AST
-	case class BinOpAST(lhs: AST, op: String, rhs: AST) extends AST
+	case class CallAST(fname: String, args: Seq[AST]) extends AST
 	case class LetAST(ty: Type, sym: String, rhs: AST) extends AST
-	case class PrintAST(e: AST) extends AST
 
+	//---
 	lazy val symbol: Parser[String] = """[a-zA-Z_][a-zA-Z0-9_]*""".r
 	lazy val number: Parser[Int] = """[0-9]+""".r ^^ { _.toInt }
 
-	lazy val elem: Parser[AST] =
+	//---
+	lazy val parseType: Parser[Type] = symbol
+
+	lazy val parseFactor: Parser[AST] =
+			"(" ~> parseExpr <~ ")" |
 			symbol ^^ { SymbolAST(_) } |
 			number ^^ { NumberAST(_) }
 
-	lazy val parseType: Parser[String] = symbol
-
-	lazy val parseExpr1: Parser[AST] =
-			elem ~ ("*"|"/") ~ parseExpr1 ^^ {
-				case a~b~c => BinOpAST(a, b, c)
-			} |
-			elem
+	lazy val parseTerm: Parser[AST] =
+			parseFactor ~ rep(("*"|"/") ~ parseFactor) ^^ {
+				case a~b => (a /: b) { case (a, (op~c)) => CallAST(op, Seq(a, c)) }
+			}
 
 	lazy val parseExpr: Parser[AST] =
-			parseExpr1 ~ ("+"|"-") ~ parseExpr ^^ {
-				case a~b~c => BinOpAST(a, b, c)
-			} |
-			parseExpr1
+			parseTerm ~ rep(("+"|"-") ~ parseTerm) ^^ {
+				case a~b => (a /: b) { case (a, (op~c)) => CallAST(op, Seq(a, c)) }
+			}
 
 	lazy val parseLet: Parser[AST] = parseType ~ symbol ~ "=" ~ parseExpr ^^ {
 		case t~a~_~b => LetAST(t, a, b)
 	}
 
 	lazy val parsePrint: Parser[AST] = "print" ~ "(" ~ parseExpr ~ ")" ^^ {
-		case _~_~a~_ => PrintAST(a)
+		case _~_~a~_ => CallAST("print", Seq(a))
 	}
 
 	lazy val parseStmt: Parser[AST] = (parseLet | parsePrint) <~ ";"
 
 }
 
-object Converter {
+object BrainScript {
 	import BrainScriptParser._
 
 	//def D(msg: Any) = {} // debug
@@ -91,23 +91,26 @@ object Converter {
 		">" + "[-<" + ls + "+>" + rs + "]"  // restore [n] = [1], [1] = 0
 	}
 
-	val funcs: Map[String, String] = Map(
-		"+" -> "<[-<+>]",
-		"-" -> "<[-<->]",
-		"*" -> "[-]>[-]<<<[->>+<<]>[->[->+<<<+>>]>[-<+>]<<]",
-		"print" -> "<."
+	case class Func(src: String, retSize: Int)
+
+	val funcs: Map[String, Func] = Map(
+		"+" -> Func("<[-<+>]", 1),
+		"-" -> Func("<[-<->]", 1),
+		"*" -> Func("[-]>[-]<<<[->>+<<]>[->[->+<<<+>>]>[-<+>]<<]", 1),
+		"print" -> Func("<.", 0)
 	)
 
-	def convCall(fname: String, args: Seq[AST], ret: Int) = {
-		(("" /: args) (_ + conv(_))) + { index -= args.size - ret; funcs(fname) }
+	def convCall(fname: String, args: Seq[AST]) = {
+		val func = funcs(fname)
+		(("" /: args) (_ + conv(_))) +
+			{ index -= args.size - func.retSize; func.src }
 	}
 
 	def conv(ast: AST): String = ast match {
 		case NumberAST(n) => zero + convInt(n) + shift(1)
 		case SymbolAST(s) => load(getIndex(s))
-		case BinOpAST(l, op, r) => convCall(op, Seq(l, r), 1)
 		case LetAST(t, s, e) => addLocal(s); conv(e)
-		case PrintAST(e) => convCall("print", Seq(e), 0)
+		case CallAST(fname, args) => convCall(fname, args)
 	}
 
 	var res = ""

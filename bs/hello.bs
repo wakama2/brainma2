@@ -1,4 +1,4 @@
-int a = 65;
+int a = 5 * (10 + 3);
 int l = a + 11;
 print(a + 7);
 print(a + 4);
