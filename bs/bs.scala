@@ -145,7 +145,13 @@ object BrainScript {
 		case VarStmtAST(t, s, e) => addLocal(s); conv(e)
 		case CallAST(fname, args) => convCall(fname, args)
 		case BlockStmtAST(b) => b.map { conv(_) } reduce {_ + _}
-		//case IfStmtAST(c, t, e) => conv(c)//TOFO
+		case IfStmtAST(c, t, None) =>
+			conv(c) + shift(-1) + "[" + shift(1) + conv(t) + shift(-1) + "[-]]"
+		case IfStmtAST(c, t, Some(e)) =>
+			conv(c) + convInt(1) + shift(-1) +
+			"[" + shift(2) + conv(t) + shift(-2) + "[-]" +
+			">-<]" + shift(1) + "[" +
+			shift(1) + conv(e) + shift(-1) + "[-]]" + shift(-1)
 	}
 
 	var res = ""
